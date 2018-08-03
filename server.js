@@ -7,10 +7,81 @@ const bodyParser = require('body-parser');
 const jsonParser = bodyParser.json();
 
 const {PORT, DATABASE_URL} = require('./config');
-const { Blog } = require('./models');
+const { Author, Blog } = require('./models');
 
 const app = express();
 app.use(express.json());
+
+
+app.get('/authors', (req, res) => {
+    Author.find()
+        .then(authors => {
+            res.json(authors.map(authors => authors.serialize()))
+        })
+        .catch(err => {
+            console.error(err);
+            res.status(500).json({message: 'Internal Service Error'})
+        })
+})
+
+app.get('/authors/:id', (req, res) => {
+    Author.findById(req.params.id)
+        .then(author => res.json(author.serialize()))
+        .catch(err => {
+            console.error(err);
+            res.status(500).json({message: 'Internal Service Error'});
+        })
+})
+
+app.post('/authors', (req, res) => {
+    const requiredFields = ['firstName', 'lastName', 'userName']
+    for (let i=0; i< requiredFields; i++) {
+        const field = requiredFields[i];
+        if (!(field in req.body)) {
+            const message = `Missing ${field} in request body`;
+            console.error(message);
+            return res.status(400).send(message)
+        }
+    }
+    Author 
+        .create({
+            firstName: req.body.firstName,
+            lastName: req.body.lastName,
+            userName: req.body.userName
+        })
+        .then(author => res.status(201).json(author.serialize()))
+})
+
+app.put('/authors/:id', (req, res) => {
+    if (!(req.params.id && req.body.id && req.params.id === req.body.id)) {
+        const message = 
+            `Request path id (${req.params.id}) and request body id ` +
+            `(${req.body.id}) must match`;
+        console.error(message);
+        return res.status(400).json({message: message})
+    }
+    const toUpdate = {};
+    const updateableFields = ['firstName', 'lastName', 'userName']
+
+    updateableFields.forEach(field => {
+        if (field in req.body) {
+            toUpdate[field] = req.body[field]
+        };
+    });
+
+    Author
+        .findByIdAndUpdate(req.params.id, { $set: toUpdate})
+        .then(author => res.status(204).end())
+        .catch(err => res.status(500).json({message: "Internal Server Error"}))
+})
+
+app.delete('/authors/:id', (req, res) => {
+    Author
+        .findByIdAndRemove(req.params.id)
+        .then(author => res.status(204).end())
+        .catch(err => res.status(500).json({message: "Internal Server Error"}))
+
+})
 
 app.get('/posts', (req, res) => {
     // const filters = {};
@@ -41,7 +112,7 @@ app.get('/posts/:id', (req, res) => {
 });
 
 app.post('/posts', (req, res) => {
-    const requiredFields = ['title', 'author', 'content'];
+    const requiredFields = ['title', 'author_id', 'content'];
     for (let i=0; i < requiredFields.length; i++) {
         const field = requiredFields[i];
         if (!(field in req.body)) {
@@ -50,21 +121,31 @@ app.post('/posts', (req, res) => {
             return res.status(400).send(message)
         }
     }
-    Blog
-        .create({
-            title: req.body.title,
-            author: {
-                firstName: req.body.author.firstName,
-                lastName: req.body.author.lastName
-            },
-            content: req.body.content
-        })
-        .then(blog => res.status(201).json(blog.serialize()))
-        .catch(err => {
-            console.error(err);
-            res.status(500).json({message: 'Internal Server Error'});
-        });
-});
+    Author
+        .findById(req.body.author_id)
+        .then(author => {
+            if (author) {
+                Blog
+                    .create({
+                        title: req.body.title,
+                        author: req.body.id,
+                        content: req.body.content
+                    })
+                    .then(blogPost => res.status(201).json({
+                        id: blogPost.id,
+                        author: `${author.firstName} ${author.lastName}`,
+                        content: blogPost.content,
+                        title: blogPost.title,
+                        comments: blogPost.comments
+                      }))
+                    .catch(err => {
+                        console.error(err);
+                        res.status(500).json({message: 'Internal Server Error'});
+                    })
+            }
+        }
+    );
+})
 
 app.put('/posts/:id', (req,res) => {
     if (!(req.params.id && req.body.id && req.params.id === req.body.id)) {
